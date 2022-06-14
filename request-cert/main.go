@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -65,6 +66,7 @@ func main() {
 		log.Fatalf("could not determine hostname. got: %q, err=%v", hostname, err)
 	}
 
+	ctx := context.Background()
 	switch *certificateType {
 	case "node":
 		if len(*addresses) == 0 {
@@ -92,20 +94,20 @@ func main() {
 	}
 
 	log.Printf("Looking up cert and key under secret %s\n", csrName)
-	pemCert, pemKey, err := getSecrets(csrName)
+	pemCert, pemKey, err := getSecrets(ctx, csrName)
 	if err != nil {
 		log.Fatalf("failed to read from secrets: %v", err)
 	}
 
 	if pemCert == nil || pemKey == nil {
 		log.Printf("Secret %s not found, sending CSR\n", csrName)
-		pemCert, pemKey, err = requestCertificate(csrName, template, wantServerAuth)
+		pemCert, pemKey, err = requestCertificate(ctx, csrName, template, wantServerAuth)
 		if err != nil {
 			log.Fatalf("failed to get certificate: %v", err)
 		}
 
 		log.Printf("Storing cert and key under secret %s\n", csrName)
-		if err := storeSecrets(csrName, pemCert, pemKey); err != nil {
+		if err := storeSecrets(ctx, csrName, pemCert, pemKey); err != nil {
 			log.Fatalf("could not store secrets: %v", err)
 		}
 	}
@@ -119,7 +121,7 @@ func main() {
 // requestCertificate builds a CSR and send its for approval.
 // If approved, it will return the pem-encoded certificate and key, otherwise it returns an error.
 func requestCertificate(
-	csrName string, template *x509.CertificateRequest, wantServerAuth bool,
+	ctx context.Context, csrName string, template *x509.CertificateRequest, wantServerAuth bool,
 ) ([]byte, []byte, error) {
 	// Generate a new private key.
 	privateKey, err := rsa.GenerateKey(rand.Reader, *keySize)
@@ -150,9 +152,9 @@ func requestCertificate(
 	)
 
 	// Send CSR for approval and certificate generation.
-	pemCert, err := getKubernetesCertificate(csrName, pemCSR, wantServerAuth, false)
+	pemCert, err := getKubernetesCertificate(ctx, csrName, pemCSR, wantServerAuth, false)
 	for i := 0; i < 10 && err == ChannelError; i++ {
-		pemCert, err = getKubernetesCertificate(csrName, pemCSR, wantServerAuth, true)
+		pemCert, err = getKubernetesCertificate(ctx, csrName, pemCSR, wantServerAuth, true)
 	}
 	if err != nil {
 		return nil, nil, err
